@@ -139,7 +139,7 @@ button:disabled{opacity:.5;cursor:default}
     <p>Tus recorridos se guardan solo en este dispositivo. Puedes exportarlos para pasarlos a otro teléfono.</p>
     <div class="row"><button id="bExport">Exportar</button><button id="bImport">Importar</button></div>
     <div class="row"><button id="bReset" class="danger">Reiniciar mapa</button><button id="bClose">Cerrar</button></div>
-    <input type="file" id="fImport" accept="application/json,.json" hidden>
+    <input type="file" id="fImport" accept="application/json,.json,text/plain,.txt,.csv" hidden>
   </div>
 </div>
 <div id="toast"></div>
@@ -381,6 +381,24 @@ button:disabled{opacity:.5;cursor:default}
     }
     return { total, inMilan, newCells: fine.size - before, newPlaces: found.size - beforePlaces };
   }
+  function importCoordText(text){
+    const beforePlaces = found.size;
+    let total = 0, inMilan = 0;
+    for (const raw of text.split(/\r?\n/)){
+      const line = raw.trim(); if (!line) continue;
+      let p = null;
+      const parts = line.split(/\s*[;\t]\s*/);
+      if (parts.length >= 2){
+        const la = parseFloat(parts[0].replace(',', '.')), ln = parseFloat(parts[1].replace(',', '.'));
+        if (isFinite(la) && isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180 && (la || ln)) p = [la, ln];
+      } else p = parseCoordString(line);
+      if (!p) continue;
+      total++;
+      if (p[0] < REGION.s || p[0] > REGION.n || p[1] < REGION.w || p[1] > REGION.e) continue;
+      inMilan++; reveal(p[0], p[1], true);
+    }
+    return { total, inMilan, newPlaces: found.size - beforePlaces };
+  }
   function setPos(p){ pos = p; me.setLatLng(p); }
 
   // ---------- Simulación ----------
@@ -478,8 +496,18 @@ button:disabled{opacity:.5;cursor:default}
   $('fImport').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     e.target.value = '';
+    const text = await f.text();
     let data;
-    try { data = JSON.parse(await f.text()); } catch(err){ toast('El archivo no es un JSON válido'); return; }
+    try { data = JSON.parse(text); }
+    catch(err){
+      // Texto plano: una coordenada por línea, "lat;lng" (por ejemplo, desde un atajo del iPhone)
+      const r = importCoordText(text);
+      store.set(KEY, snapshot()); refreshAll(); $('sheet').hidden = true;
+      if (!r.total) toast('No encontré coordenadas en ese archivo');
+      else if (!r.inMilan) toast(`Leí ${r.total.toLocaleString('es')} ubicaciones, pero ninguna en Milán`);
+      else { toast(`${r.inMilan.toLocaleString('es')} lugares de tus fotos en Milán, ${r.newPlaces} lugares nuevos`); fitToExplored(); }
+      return;
+    }
     if (data && data.v === 1 && Array.isArray(data.fine)){
       load(data); store.set(KEY, snapshot()); refreshAll(); $('sheet').hidden = true; toast('Progreso importado');
       return;
@@ -521,7 +549,7 @@ button:disabled{opacity:.5;cursor:default}
   if ('serviceWorker' in navigator && location.protocol === 'https:'){
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__explora = { snapshot, walkTo, importTimeline, refreshAll };
+  window.__explora = { snapshot, walkTo, importTimeline, importCoordText, refreshAll };
 })();
 </script>
 </body>
