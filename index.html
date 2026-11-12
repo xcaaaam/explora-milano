@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Explora Milán</title>
+<meta name="description" content="Desbloquea el mapa de Milán caminando. Lo que no has recorrido sigue cubierto por la niebla.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#1f6fd1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Explora">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --bg:#f5f6f8; --panel:rgba(255,255,255,.94); --text:#14202e; --muted:#5d6b7a;
+  --line:rgba(20,32,46,.12); --accent:#1f6fd1; --accent-ink:#fff; --gold:#e0a21b;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e141b; --panel:rgba(20,28,38,.94); --text:#e8eef5; --muted:#9aa9b8;
+    --line:rgba(255,255,255,.12); --accent:#4c93ec; --accent-ink:#06121f; --gold:#f2b53a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e141b; --panel:rgba(20,28,38,.94); --text:#e8eef5; --muted:#9aa9b8;
+  --line:rgba(255,255,255,.12); --accent:#4c93ec; --accent-ink:#06121f; --gold:#f2b53a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+#map{position:fixed;inset:0}
+.leaflet-container{background:#cfd8e0}
+.fog{position:absolute;left:0;top:0;pointer-events:none}
+
+.hud{position:fixed;left:12px;right:12px;z-index:1000;display:flex;gap:8px;align-items:center;
+  justify-content:space-between;pointer-events:none}
+.hud.top{top:calc(12px + env(safe-area-inset-top))}
+.hud > *{pointer-events:auto}
+.brand{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 12px;
+  font-weight:700;letter-spacing:.2px;box-shadow:0 4px 16px rgba(0,0,0,.12)}
+.brand span{color:var(--accent)}
+.seg{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:3px;
+  box-shadow:0 4px 16px rgba(0,0,0,.12)}
+.seg button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;
+  padding:7px 10px;border-radius:9px;cursor:pointer}
+.seg button.on{background:var(--accent);color:var(--accent-ink)}
+
+.panel{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:1000;
+  max-width:520px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  padding:12px;box-shadow:0 8px 28px rgba(0,0,0,.18);backdrop-filter:blur(8px)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center}
+.stats b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.stats small{color:var(--muted);font-size:11px}
+.bar{height:6px;border-radius:6px;background:var(--line);margin:10px 0 8px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),#38b6a8);transition:width .4s}
+.hint{font-size:12.5px;color:var(--muted);margin-bottom:10px;min-height:1.2em}
+.actions{display:flex;gap:8px}
+.actions button,.sheet button{flex:1;border:1px solid var(--line);background:transparent;color:var(--text);
+  font:inherit;font-size:14px;font-weight:600;padding:10px;border-radius:11px;cursor:pointer}
+.actions button.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+button:disabled{opacity:.5;cursor:default}
+
+.sheet{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center}
+.sheet[hidden]{display:none}
+.sheet .card{width:100%;max-width:520px;margin:12px;background:var(--panel);border-radius:16px;padding:16px;
+  border:1px solid var(--line)}
+.sheet h2{margin:0 0 6px;font-size:17px}
+.sheet p{margin:0 0 14px;color:var(--muted);font-size:13.5px;line-height:1.45}
+.sheet .row{display:flex;gap:8px;margin-bottom:8px}
+.sheet button.danger{color:#d64545}
+.sheet button.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.sheet .card{max-height:calc(100% - 24px);overflow:auto}
+.how{font-size:13px;color:var(--muted);margin:-6px 0 12px}
+.how summary{cursor:pointer;color:var(--accent);font-weight:600}
+.how ol{padding-left:18px;margin:8px 0 0;line-height:1.5}
+.dir{display:inline-block;margin-top:6px;font-weight:600;color:var(--accent)}
+
+#toast{position:fixed;left:50%;top:calc(70px + env(safe-area-inset-top));transform:translate(-50%,-20px);
+  z-index:3000;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;
+  font-size:14px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;transition:.3s;pointer-events:none;
+  max-width:calc(100% - 32px);text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+
+.me{width:18px;height:18px;border-radius:50%;background:var(--accent);border:3px solid #fff;
+  box-shadow:0 0 0 0 rgba(31,111,209,.5);animation:pulse 1.8s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(31,111,209,.55)}100%{box-shadow:0 0 0 18px rgba(31,111,209,0)}}
+.pl{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:14px;
+  border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.pl.locked{background:#5b6b7c;color:#fff}
+.pl.open{background:var(--gold);color:#3a2600}
+.leaflet-popup-content{font-family:inherit;font-size:13.5px}
+@media (max-width:420px){ .stats b{font-size:17px} .brand{font-size:14px} .seg button{padding:7px 8px} }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="hud top">
+  <div class="brand">Explora <span>Milán</span></div>
+  <div class="seg" role="group" aria-label="Modo">
+    <button id="mSim" class="on">Simulación</button>
+    <button id="mGps">GPS real</button>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="stats">
+    <div><b id="sPct">0%</b><small>de Milán</small></div>
+    <div><b id="sArea">0,00</b><small>km² vistos</small></div>
+    <div><b id="sPlaces">0/0</b><small>lugares</small></div>
+    <div><b id="sDist">0,0</b><small>km caminados</small></div>
+  </div>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="hint" id="hint">Toca el mapa para caminar hasta ese punto.</div>
+  <div class="actions">
+    <button id="bDemo" class="primary">Paseo demo</button>
+    <button id="bCenter">Centrar</button>
+    <button id="bMore">Más</button>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="card">
+    <h2>Desbloquea con tu historial de Google</h2>
+    <p>Exporta tu Cronología de Google Maps y súbela aquí: se despejará todo lo que ya caminaste en Milán. El archivo se lee solo en este teléfono, no se envía a ningún lado.</p>
+    <details class="how">
+      <summary>¿Cómo exporto mi Cronología?</summary>
+      <ol>
+        <li><b>Android:</b> Ajustes &gt; Ubicación &gt; Servicios de ubicación &gt; Cronología &gt; Exportar datos de Cronología.</li>
+        <li><b>iPhone:</b> app Google Maps &gt; tu foto &gt; Tu cronología &gt; menú (⋯) &gt; Configuración de ubicación y privacidad &gt; Exportar datos de Cronología.</li>
+        <li>Guarda el archivo .json y elígelo con el botón de abajo. La ruta exacta puede variar según la versión.</li>
+      </ol>
+    </details>
+    <div class="row"><button id="bTimeline" class="primary">Importar historial de Google</button></div>
+    <h2 style="margin-top:14px">Tu progreso</h2>
+    <p>Tus recorridos se guardan solo en este dispositivo. Puedes exportarlos para pasarlos a otro teléfono.</p>
+    <div class="row"><button id="bExport">Exportar</button><button id="bImport">Importar</button></div>
+    <div class="row"><button id="bReset" class="danger">Reiniciar mapa</button><button id="bClose">Cerrar</button></div>
+    <input type="file" id="fImport" accept="application/json,.json" hidden>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(() => {
+  // ---------- Configuración ----------
+  const R_M = 55;                         // radio que despeja cada paso (metros)
+  const UNLOCK_M = 70;                    // distancia para descubrir un lugar
+  const FINE_LAT = 0.0001, FINE_LNG = 0.00014;   // celdas de ~11 m para el dibujo
+  const AREA_LAT = 0.00045, AREA_LNG = 0.00064;  // celdas de ~50 m para medir área
+  const CELL_KM2 = 0.05 * 0.05;
+  const MILAN_KM2 = 181.7;
+  const BBOX = { s: 45.386, n: 45.536, w: 9.040, e: 9.278 };
+  const FOG = 'rgba(34, 88, 148, 0.62)';
+  const START = [45.4642, 9.1916];
+  const KEY = 'explora-milano-v1';
+
+  const PLACES = [
+    ['Duomo di Milano', 45.4641, 9.1919],
+    ['Galleria Vittorio Emanuele II', 45.4656, 9.1900],
+    ['Teatro alla Scala', 45.4674, 9.1895],
+    ['Pinacoteca di Brera', 45.4719, 9.1880],
+    ['Castello Sforzesco', 45.4705, 9.1793],
+    ['Parco Sempione', 45.4728, 9.1760],
+    ['Arco della Pace', 45.4757, 9.1724],
+    ['Santa Maria delle Grazie', 45.4660, 9.1707],
+    ["Basilica di Sant'Ambrogio", 45.4623, 9.1754],
+    ['Colonne di San Lorenzo', 45.4580, 9.1817],
+    ['Darsena', 45.4537, 9.1770],
+    ['Vicolo dei Lavandai', 45.4507, 9.1708],
+    ['Cimitero Monumentale', 45.4857, 9.1797],
+    ['Corso Como', 45.4818, 9.1876],
+    ['Piazza Gae Aulenti', 45.4840, 9.1900],
+    ['Bosco Verticale', 45.4855, 9.1903],
+    ['Stazione Centrale', 45.4861, 9.2045],
+    ['Giardini Indro Montanelli', 45.4740, 9.2010],
+  ];
+  const DEMO = [
+    [45.4641, 9.1919], [45.4656, 9.1900], [45.4674, 9.1895], [45.4700, 9.1880],
+    [45.4719, 9.1880], [45.4712, 9.1835], [45.4705, 9.1793], [45.4728, 9.1760],
+    [45.4757, 9.1724], [45.4700, 9.1730], [45.4660, 9.1707], [45.4623, 9.1754],
+    [45.4580, 9.1817], [45.4555, 9.1795], [45.4537, 9.1770], [45.4507, 9.1708],
+  ];
+
+  // ---------- Almacenamiento seguro ----------
+  const store = {
+    get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } },
+    set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} },
+  };
+
+  // ---------- Estado ----------
+  let fine = new Set(), area = new Set(), found = new Set();
+  let dist = 0, pos = START.slice();
+  const fineKey = (la, ln) => Math.round(la / FINE_LAT) + ':' + Math.round(ln / FINE_LNG);
+  const keyLL = k => { const i = k.indexOf(':'); return [k.slice(0, i) * FINE_LAT, k.slice(i + 1) * FINE_LNG]; };
+  const meters = (a, b, c, d) => {
+    const x = (d - b) * Math.cos((a + c) / 2 * Math.PI / 180) * 111320;
+    const y = (c - a) * 110540;
+    return Math.hypot(x, y);
+  };
+  const inBox = (la, ln) => la >= BBOX.s && la <= BBOX.n && ln >= BBOX.w && ln <= BBOX.e;
+
+  function markArea(la, ln){
+    const ci = Math.round(la / AREA_LAT), cj = Math.round(ln / AREA_LNG);
+    for (let di = -2; di <= 2; di++) for (let dj = -2; dj <= 2; dj++){
+      const cla = (ci + di) * AREA_LAT, cln = (cj + dj) * AREA_LNG;
+      if (inBox(cla, cln) && meters(la, ln, cla, cln) <= R_M) area.add((ci + di) + ':' + (cj + dj));
+    }
+  }
+
+  function load(data){
+    fine = new Set(); area = new Set(); found = new Set(); dist = 0; pos = START.slice();
+    if (!data) return;
+    (data.fine || []).forEach(k => { fine.add(k); const [a, b] = keyLL(k); markArea(a, b); });
+    (data.places || []).forEach(n => found.add(n));
+    dist = +data.dist || 0;
+    if (Array.isArray(data.pos)) pos = data.pos;
+  }
+  const snapshot = () => ({ v: 1, fine: [...fine], places: [...found], dist, pos });
+  let saveT = 0;
+  const save = () => { clearTimeout(saveT); saveT = setTimeout(() => store.set(KEY, snapshot()), 600); };
+  load(store.get(KEY));
+
+  // ---------- Mapa ----------
+  const map = L.map('map', { zoomControl: false, zoomAnimation: false, attributionControl: true })
+    .setView(pos, 15);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(map);
+
+  // Capa de niebla: un canvas en su propio panel, entre los mosaicos y los marcadores
+  const pane = map.createPane('fog');
+  pane.style.zIndex = 450; pane.style.pointerEvents = 'none';
+  const cv = L.DomUtil.create('canvas', 'fog', pane);
+  const ctx = cv.getContext('2d');
+
+  function draw(){
+    const size = map.getSize();
+    const m = Math.round(Math.max(size.x, size.y) * 0.5);
+    const w = size.x + 2 * m, h = size.y + 2 * m;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)){
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+      cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    }
+    L.DomUtil.setPosition(cv, map.containerPointToLayerPoint([-m, -m]));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = FOG;
+    ctx.fillRect(0, 0, w, h);
+
+    const c = map.getCenter();
+    const mpp = 40075016.686 * Math.cos(c.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8);
+    const r = R_M / mpp;
+    const b = map.getBounds().pad(0.7);
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    for (const k of fine){
+      const ll = keyLL(k);
+      if (!b.contains(ll)) continue;
+      const p = map.latLngToContainerPoint(ll);
+      ctx.moveTo(p.x + m + r, p.y + m);
+      ctx.arc(p.x + m, p.y + m, r, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    cv.style.filter = `blur(${Math.min(16, Math.max(1.5, r * 0.3)).toFixed(1)}px)`;
+  }
+  let raf = 0;
+  const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+  map.on('move zoom resize viewreset', redraw);
+
+  // ---------- Marcadores ----------
+  const me = L.marker(pos, { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }), interactive: false, zIndexOffset: 1000 }).addTo(map);
+  const placeMarkers = new Map();
+  function placeIcon(open){
+    return L.divIcon({ className: '', html: `<div class="pl ${open ? 'open' : 'locked'}">${open ? '★' : '?'}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] });
+  }
+  function popupHtml(name, la, ln, open){
+    const dir = `https://www.google.com/maps/dir/?api=1&destination=${la},${ln}&travelmode=walking`;
+    const body = open ? `<b>${name}</b><br>Descubierto` : 'Lugar sin descubrir.<br>Camina hasta aquí para revelarlo.';
+    return `${body}<br><a class="dir" href="${dir}" target="_blank" rel="noopener">Cómo llegar en Google Maps</a>`;
+  }
+  PLACES.forEach(([name, la, ln]) => {
+    const open = found.has(name);
+    const mk = L.marker([la, ln], { icon: placeIcon(open) }).addTo(map)
+      .bindPopup(popupHtml(name, la, ln, open));
+    placeMarkers.set(name, mk);
+  });
+
+  // ---------- UI ----------
+  const $ = id => document.getElementById(id);
+  const fmt = (n, d) => n.toLocaleString('es', { minimumFractionDigits: d, maximumFractionDigits: d });
+  function updateStats(){
+    const km2 = area.size * CELL_KM2;
+    const pct = Math.min(100, km2 / MILAN_KM2 * 100);
+    $('sPct').textContent = (pct < 10 ? fmt(pct, 2) : fmt(pct, 1)) + '%';
+    $('sArea').textContent = fmt(km2, 2);
+    $('sPlaces').textContent = found.size + '/' + PLACES.length;
+    $('sDist').textContent = fmt(dist / 1000, 1);
+    $('bar').style.width = Math.max(pct, pct > 0 ? 1 : 0) + '%';
+  }
+  let toastT = 0;
+  function toast(msg){
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600);
+  }
+
+  // ---------- Revelar ----------
+  function reveal(la, ln, quiet){
+    const k = fineKey(la, ln);
+    if (!fine.has(k)){ fine.add(k); markArea(la, ln); if (!quiet){ redraw(); save(); } }
+    for (const [name, pla, pln] of PLACES){
+      if (!found.has(name) && meters(la, ln, pla, pln) <= UNLOCK_M){
+        found.add(name);
+        if (!quiet){
+          const mk = placeMarkers.get(name);
+          mk.setIcon(placeIcon(true)); mk.setPopupContent(popupHtml(name, pla, pln, true));
+          toast('Descubriste ' + name);
+          save();
+        }
+      }
+    }
+    if (!quiet) updateStats();
+  }
+  function revealSegment(a, b, quiet){
+    const d = meters(a[0], a[1], b[0], b[1]);
+    const n = Math.max(1, Math.ceil(d / 12));
+    for (let i = 1; i <= n; i++) reveal(a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n, quiet);
+  }
+
+  // ---------- Historial de Google Maps (Cronología) ----------
+  // Lee los formatos conocidos sin depender de uno solo: exportación nueva de Android
+  // ("45.46°, 9.19°"), de iPhone ("geo:45.46,9.19") y Takeout antiguo (latitudeE7).
+  const REGION = { s: BBOX.s - 0.06, n: BBOX.n + 0.06, w: BBOX.w - 0.08, e: BBOX.e + 0.08 };
+  const MAX_GAP_M = 250; // solo une puntos cercanos, para no "pintar" trayectos en metro o auto
+  function parseCoordString(s){
+    let m = /^geo:\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/.exec(s);
+    if (!m) m = /^\s*(-?\d+(?:\.\d+)?)°?\s*,\s*(-?\d+(?:\.\d+)?)°?\s*$/.exec(s);
+    if (!m) return null;
+    const la = +m[1], ln = +m[2];
+    return Math.abs(la) <= 90 && Math.abs(ln) <= 180 ? [la, ln] : null;
+  }
+  function coordFromObj(o){
+    if (o.latitudeE7 != null && o.longitudeE7 != null) return [o.latitudeE7 / 1e7, o.longitudeE7 / 1e7];
+    if (o.latE7 != null && o.lngE7 != null) return [o.latE7 / 1e7, o.lngE7 / 1e7];
+    return null;
+  }
+  function extractChains(root){
+    const chains = [];
+    const visit = (node, chain) => {
+      if (typeof node === 'string'){ const p = parseCoordString(node); if (p) chain.push(p); return; }
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)){ const c = []; chains.push(c); for (const x of node) visit(x, c); return; }
+      const p = coordFromObj(node); if (p) chain.push(p);
+      for (const k in node) visit(node[k], chain);
+    };
+    const top = []; chains.push(top); visit(root, top);
+    return chains;
+  }
+  function importTimeline(data){
+    const before = fine.size, beforePlaces = found.size;
+    let total = 0, inMilan = 0;
+    for (const chain of extractChains(data)){
+      let prev = null;
+      for (const p of chain){
+        total++;
+        const ok = p[0] >= REGION.s && p[0] <= REGION.n && p[1] >= REGION.w && p[1] <= REGION.e;
+        if (!ok){ prev = null; continue; }
+        inMilan++;
+        if (prev && meters(prev[0], prev[1], p[0], p[1]) <= MAX_GAP_M) revealSegment(prev, p, true);
+        else reveal(p[0], p[1], true);
+        prev = p;
+      }
+    }
+    return { total, inMilan, newCells: fine.size - before, newPlaces: found.size - beforePlaces };
+  }
+  function setPos(p){ pos = p; me.setLatLng(p); }
+
+  // ---------- Simulación ----------
+  let walking = null;
+  function walkTo(target){
+    return new Promise(resolve => {
+      if (walking) walking.cancel();
+      const from = pos.slice();
+      const d = meters(from[0], from[1], target[0], target[1]);
+      const dur = Math.min(6000, Math.max(500, d / 160 * 1000));
+      let start = 0, last = from, alive = true;
+      walking = { cancel(){ alive = false; resolve(false); } };
+      const step = t => {
+        if (!alive) return;
+        if (!start) start = t;
+        const k = Math.min(1, (t - start) / dur);
+        const p = [from[0] + (target[0] - from[0]) * k, from[1] + (target[1] - from[1]) * k];
+        revealSegment(last, p);
+        dist += meters(last[0], last[1], p[0], p[1]);
+        last = p; setPos(p);
+        if (!map.getBounds().pad(-0.2).contains(p)) map.panTo(p, { animate: true });
+        if (k < 1) requestAnimationFrame(step);
+        else { walking = null; save(); updateStats(); resolve(true); }
+      };
+      requestAnimationFrame(step);
+    });
+  }
+  map.on('click', e => { if (mode === 'sim') walkTo([e.latlng.lat, e.latlng.lng]); });
+
+  let demoOn = false;
+  $('bDemo').onclick = async () => {
+    if (mode !== 'sim') setMode('sim');
+    if (demoOn){ demoOn = false; if (walking) walking.cancel(); return; }
+    demoOn = true; $('bDemo').textContent = 'Detener';
+    map.setView(DEMO[0], 15);
+    setPos(DEMO[0]); reveal(DEMO[0][0], DEMO[0][1]);
+    for (const p of DEMO.slice(1)){
+      if (!demoOn) break;
+      const ok = await walkTo(p);
+      if (!ok) break;
+    }
+    demoOn = false; $('bDemo').textContent = 'Paseo demo';
+  };
+
+  // ---------- GPS real ----------
+  let mode = 'sim', watchId = null, lastFix = null;
+  function setMode(m){
+    mode = m;
+    $('mSim').classList.toggle('on', m === 'sim');
+    $('mGps').classList.toggle('on', m === 'gps');
+    $('bDemo').disabled = m === 'gps';
+    if (m === 'gps'){
+      if (walking) walking.cancel(); demoOn = false; $('bDemo').textContent = 'Paseo demo';
+      if (!('geolocation' in navigator)){ toast('Este navegador no permite GPS'); setMode('sim'); return; }
+      $('hint').textContent = 'Buscando tu ubicación. Camina y el mapa se irá despejando.';
+      lastFix = null;
+      watchId = navigator.geolocation.watchPosition(onFix, err => {
+        toast(err.code === 1 ? 'Permiso de ubicación denegado' : 'No se pudo obtener la ubicación');
+        $('hint').textContent = 'Activa la ubicación para usar el modo GPS.';
+      }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+    } else {
+      if (watchId !== null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
+      $('hint').textContent = 'Toca el mapa para caminar hasta ese punto.';
+    }
+  }
+  function onFix(p){
+    const { latitude: la, longitude: ln, accuracy } = p.coords;
+    if (accuracy > 60) { $('hint').textContent = `Señal GPS débil (±${Math.round(accuracy)} m). Esperando más precisión.`; return; }
+    const cur = [la, ln];
+    if (!lastFix){ map.setView(cur, 16); reveal(la, ln); }
+    else {
+      const d = meters(lastFix[0], lastFix[1], la, ln);
+      if (d < 5) return;
+      if (d < 400){ revealSegment(lastFix, cur); dist += d; } else reveal(la, ln);
+    }
+    lastFix = cur; setPos(cur); save(); updateStats();
+    $('hint').textContent = `GPS activo (±${Math.round(accuracy)} m). Sigue caminando.`;
+  }
+  $('mSim').onclick = () => setMode('sim');
+  $('mGps').onclick = () => setMode('gps');
+  $('bCenter').onclick = () => map.setView(pos, Math.max(map.getZoom(), 16));
+
+  // ---------- Exportar / importar / reiniciar ----------
+  $('bMore').onclick = () => { $('sheet').hidden = false; };
+  $('bClose').onclick = () => { $('sheet').hidden = true; };
+  $('sheet').onclick = e => { if (e.target.id === 'sheet') $('sheet').hidden = true; };
+  $('bExport').onclick = () => {
+    const blob = new Blob([JSON.stringify(snapshot())], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'explora-milano-progreso.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  $('bImport').onclick = () => $('fImport').click();
+  $('bTimeline').onclick = () => $('fImport').click();
+  $('fImport').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    e.target.value = '';
+    let data;
+    try { data = JSON.parse(await f.text()); } catch(err){ toast('El archivo no es un JSON válido'); return; }
+    if (data && data.v === 1 && Array.isArray(data.fine)){
+      load(data); store.set(KEY, snapshot()); refreshAll(); $('sheet').hidden = true; toast('Progreso importado');
+      return;
+    }
+    toast('Leyendo tu historial...');
+    setTimeout(() => {
+      const r = importTimeline(data);
+      store.set(KEY, snapshot()); refreshAll(); $('sheet').hidden = true;
+      if (!r.total) toast('No encontré ubicaciones en ese archivo');
+      else if (!r.inMilan) toast(`Leí ${r.total.toLocaleString('es')} ubicaciones, pero ninguna en Milán`);
+      else {
+        toast(`Historial importado: ${r.inMilan.toLocaleString('es')} puntos en Milán, ${r.newPlaces} lugares nuevos`);
+        if (r.newCells) fitToExplored();
+      }
+    }, 50);
+  };
+  function fitToExplored(){
+    let s = 90, n = -90, w = 180, e = -180;
+    for (const k of fine){ const [la, ln] = keyLL(k); if (la < s) s = la; if (la > n) n = la; if (ln < w) w = ln; if (ln > e) e = ln; }
+    if (s <= n) map.fitBounds([[s, w], [n, e]], { padding: [30, 30], maxZoom: 16 });
+  }
+  $('bReset').onclick = () => {
+    if (!confirm('Se borrará todo lo que has desbloqueado en este dispositivo. ¿Continuar?')) return;
+    load(null); store.set(KEY, snapshot()); refreshAll(); $('sheet').hidden = true; toast('Mapa reiniciado');
+  };
+  function refreshAll(){
+    setPos(pos);
+    PLACES.forEach(([name]) => {
+      const open = found.has(name), mk = placeMarkers.get(name);
+      mk.setIcon(placeIcon(open));
+      const p = PLACES.find(x => x[0] === name);
+      mk.setPopupContent(popupHtml(name, p[1], p[2], open));
+    });
+    updateStats(); redraw();
+  }
+
+  if (!fine.size) reveal(pos[0], pos[1]);
+  refreshAll();
+  if ('serviceWorker' in navigator && location.protocol === 'https:'){
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  window.__explora = { snapshot, walkTo, importTimeline, refreshAll };
+})();
+</script>
+</body>
+</html>
